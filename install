@@ -1,0 +1,64 @@
+#!/bin/sh
+set -eu
+
+repo=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+action=install
+case ${1-} in
+    --uninstall) action=uninstall; shift ;;
+    -h|--help) printf 'Usage: %s [--uninstall] [HOME_DIRECTORY]\n' "$0"; exit 0 ;;
+    -*) printf 'Unknown option: %s\n' "$1" >&2; exit 2 ;;
+esac
+[ "$#" -le 1 ] || exit 2
+if [ "$#" -eq 1 ]; then
+    target=$1
+    config=$target/.config
+else
+    target=$HOME
+    config=${XDG_CONFIG_HOME:-$target/.config}
+fi
+case $target in /*) ;; *) target=$PWD/$target ;; esac
+case $config in /*) ;; *) config=$PWD/$config ;; esac
+
+link() {
+    source=$repo/$1 destination=$2
+    if [ -L "$destination" ] && [ "$(readlink "$destination")" = "$source" ]; then
+        if [ "$action" = uninstall ]; then
+            rm -- "$destination"
+        fi
+    elif [ "$action" = install ]; then
+        directory=$(dirname "$destination")
+        mkdir -p "$directory"
+        # Preserve the basename; an existing entry must fail, not receive a nested link.
+        ln -s "$source" "$directory/"
+    fi
+    return 0
+}
+
+for file in .bash_profile .bashrc .zshenv .zprofile .zshrc .tmux.conf .vimrc .bash .zsh .shell; do
+    link "$file" "$target/$file"
+done
+
+for app in bat nvim ghostty terminal-colors; do
+    link ".config/$app" "$config/$app"
+done
+
+link .vim/colors/catppuccin_mocha.vim "$target/.vim/colors/catppuccin_mocha.vim"
+
+for file in .terminfo/g/ghostty .terminfo/x/xterm-ghostty .terminfo/m/ms-terminal .terminfo/t/tmux-256color; do
+    link "$file" "$target/$file"
+    case $file in
+        .terminfo/g/*) hex=67 ;; .terminfo/x/*) hex=78 ;;
+        .terminfo/m/*) hex=6d ;; .terminfo/t/*) hex=74 ;;
+    esac
+    link "$file" "$target/.terminfo/$hex/${file##*/}"
+done
+
+link bin/terminal-doctor "$target/.local/bin/terminal-doctor"
+
+for bat in bat batcat; do
+    if command -v "$bat" >/dev/null 2>&1; then
+        BAT_CONFIG_DIR="$config/bat" "$bat" cache --build
+        exit 0
+    fi
+done
+printf 'bat cache skipped: bat/batcat is not installed.\n'

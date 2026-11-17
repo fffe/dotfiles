@@ -1,0 +1,12 @@
+repobase() {
+  [[ -z ${ZSH_VERSION-} ]] || emulate -L zsh
+
+  if (( $# )); then
+    builtin printf '%s\n' 'Usage: repobase' >&2
+    return 2
+  fi
+
+  local directory
+  directory=$(command git rev-parse --show-toplevel) || return $?
+  builtin cd -- "$directory"
+}

@@ -1,0 +1,36 @@
+# psgrep
+psg() {
+  if [[ -n ${ZSH_VERSION-} ]]; then
+    emulate -L zsh
+    setopt pipefail
+  else
+    local -
+    set -o pipefail
+  fi
+
+  if (( $# != 1 )) || [[ -z $1 ]]; then
+    builtin printf '%s\n' 'Usage: psg REGEX' >&2
+    return 2
+  fi
+
+  local REPLY
+  (
+    _shell_pid
+    builtin printf '%s\n' "$REPLY"
+    exec ps auxww
+  ) | (
+    local ps_pid header search_pid
+    _shell_pid; search_pid=$REPLY
+    IFS= builtin read -r ps_pid || return 1
+    IFS= builtin read -r header || return 1
+    builtin printf '%s\n' "$header"
+    exec grep -i --color=auto -- "$1" < <(
+      _shell_pid
+      exec awk \
+        -v ps_pid="$ps_pid" \
+        -v search_pid="$search_pid" \
+        -v filter_pid="$REPLY" \
+        '$2 != ps_pid && $2 != search_pid && $2 != filter_pid'
+    )
+  )
+}

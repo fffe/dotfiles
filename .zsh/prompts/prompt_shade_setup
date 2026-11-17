@@ -1,0 +1,184 @@
+typeset -gA _SHADE_ASYNC_CACHE _SHADE_ASYNC_FD _SHADE_ASYNC_PID
+typeset -gA _SHADE_MAP=(
+  [window]=1 [git]=2 [venv]=3 [tf]=4 [git_state]=5 [git_dirty]=6 [ruby]=7 [python]=8
+  [perl]=9 [node]=10 [conda]=11
+)
+
+function shade_start_async() {
+  local worker=$1 fd
+  [[ -n "$worker" ]] && shift || return
+  [[ -n "${_SHADE_ASYNC_FD[$worker]}" ]] && { shade_stop_async "$worker" }
+
+  exec {fd}< <(
+    builtin echo "${sysparams[pid]}"
+    "_shade_async_${worker}_worker" "$@"
+  )
+
+  _SHADE_ASYNC_FD[$worker]=$fd
+  read -u "$fd" "_SHADE_ASYNC_PID[$worker]"
+  [[ -o monitor ]] && _SHADE_ASYNC_PID[$worker]=-${_SHADE_ASYNC_PID[$worker]}
+  zle -F "$fd" _shade_async_complete
+}
+
+function shade_stop_async() {
+  local worker=$1
+  [[ -n "$worker" ]] || return
+
+  local fd=${_SHADE_ASYNC_FD[$worker]} pid=${_SHADE_ASYNC_PID[$worker]}
+  [[ -z "$fd" && -z "$pid" ]] && return
+  unset "_SHADE_ASYNC_FD[$worker]" "_SHADE_ASYNC_PID[$worker]"
+
+  [[ "$pid" = (|-)<-> ]] && kill -TERM -- "$pid" 2>/dev/null
+
+  if [[ "$fd" = <-> ]]; then
+    zle -F "$fd" 2>/dev/null
+    exec {fd}<&-
+  fi
+}
+
+function _shade_async_complete() {
+  local fd=$1 output eof worker
+  [[ "$fd" = <-> ]] || return
+
+  read -r -u "$fd" -d '' output 2>/dev/null
+  eof=$?
+
+  worker=${(k)_SHADE_ASYNC_FD[(r)$fd]}
+  if [[ -n "$worker" \
+      && "$output" != "${_SHADE_ASYNC_CACHE[$worker]}" ]]; then
+    _SHADE_ASYNC_CACHE[$worker]=$output
+    "_shade_async_${worker}_result" "$output"
+    zle reset-prompt
+  fi
+
+  if (( eof != 0 )); then
+    zle -F "$fd" 2>/dev/null
+    exec {fd}<&-
+    unset "_SHADE_ASYNC_FD[$worker]" "_SHADE_ASYNC_PID[$worker]"
+  fi
+}
+
+function _shade_async_git_status_worker() {
+  _shade_git
+}
+
+function _shade_async_languages_worker() {
+  _shade_languages
+}
+
+function _shade_async_languages_result() {
+  local language version
+  psvar[${_SHADE_MAP[ruby]}]=''
+  psvar[${_SHADE_MAP[python]}]=''
+  while IFS=$'\t' read -r language version; do
+    case $language in
+      ruby|python) psvar[${_SHADE_MAP[$language]}]=$version ;;
+    esac
+  done <<< "$1"
+}
+
+function _shade_async_git_status_result() {
+  psvar[${_SHADE_MAP[git]}]=${1% *}
+  psvar[${_SHADE_MAP[git_state]}]=${1##* }
+  psvar[${_SHADE_MAP[git_dirty]}]=''
+  [[ ${1##* } != '󱎘' ]] || psvar[${_SHADE_MAP[git_dirty]}]=1
+}
+
+function _shade_update_title {
+  psvar[${_SHADE_MAP[window]}]=$1
+  
+  local _shade_title_len=60 _shade_tab_len=30 prefix='%n@%m: '
+  [[ -z "$STY" && -z "$TMUX" && -z "$SSH_CLIENT" ]] && prefix=''
+
+  local tab_tpl="%${_shade_tab_len}>...>%${_SHADE_MAP[window]}v%<<"
+  local win_tpl="%${_shade_title_len}>...>${prefix}%${_SHADE_MAP[window]}v%<<"
+  local tab_final="${(V)${(%)tab_tpl}}" win_final="${(V)${(%)win_tpl}}"
+
+  if ! _shade_emit_title "$tab_final" "$win_final"; then
+    [[ -n "${terminfo[tsl]}" && -n "${terminfo[fsl]}" ]] && \
+      printf "%s%s%s" "${terminfo[tsl]}" "$win_final" "${terminfo[fsl]}"
+  fi
+}
+
+function prompt_shade_precmd() {
+  (( $+commands[git] )) && shade_start_async git_status
+
+  if [[ -n ${VIRTUAL_ENV-}${CONDA_PREFIX-} && -n ${psvar[${_SHADE_MAP[python]}]} ]]; then
+    psvar[${_SHADE_MAP[python]}]=''
+    unset '_SHADE_ASYNC_CACHE[languages]'
+  fi
+  
+  shade_start_async languages
+  _shade_update_title "${(%):-%~}"
+  _shade_context
+  
+  local field
+  for field in tf perl node conda venv; do
+    psvar[${_SHADE_MAP[$field]}]=${_SHADE_CONTEXT[$field]}
+  done
+}
+
+function prompt_shade_preexec {
+  _shade_update_title "$1"
+  shade_stop_async git_status
+  shade_stop_async languages
+}
+ 
+function prompt_shade_chpwd() {
+  shade_stop_async languages
+  unset '_SHADE_ASYNC_CACHE[languages]'
+  psvar[${_SHADE_MAP[ruby]}]=''
+  psvar[${_SHADE_MAP[python]}]=''
+
+  if [[ ! -e .git ]] \
+      && ! command git rev-parse --is-inside-work-tree &>/dev/null; then
+    unset "_SHADE_ASYNC_CACHE[git_status]"
+    psvar[${_SHADE_MAP[git]}]=''
+  fi
+}
+
+function prompt_shade_setup {
+  setopt LOCAL_OPTIONS
+  unsetopt XTRACE KSH_ARRAYS
+  prompt_opts=(cr sp percent)
+
+  autoload -Uz add-zsh-hook
+  zmodload zsh/system
+  zmodload zsh/terminfo
+
+  add-zsh-hook chpwd prompt_shade_chpwd
+  add-zsh-hook precmd prompt_shade_precmd
+  add-zsh-hook preexec prompt_shade_preexec
+
+  VIRTUAL_ENV_DISABLE_PROMPT=1
+  export CONDA_CHANGEPS1=false
+
+  if [[ -z ${_DOTFILES_SHELL_DIR-} ]]; then
+    source "${${(%):-%x}:A:h:h:h}/.shell/init.sh"
+  fi
+  [[ -n ${_DOTFILES_COLORS[palette]-} ]] || source "$_DOTFILES_SHELL_DIR/colors.sh"
+  source "$_DOTFILES_SHELL_DIR/prompt-common.sh"
+  local blue=${_DOTFILES_COLORS[blue]} coral=${_DOTFILES_COLORS[coral]}
+
+  local green=${_DOTFILES_COLORS[green]}
+  local yellow=${_DOTFILES_COLORS[yellow]} field
+  local user=$'%{\e['"${_SHADE_COLORS[user_sgr]}"'m%}'
+  local host=$'%{\e['"${_SHADE_COLORS[host_sgr]}"'m%}'
+  local directory=$'%{\e['"${_SHADE_COLORS[directory_sgr]}"'m%}'
+  local separator=$'%{\e['"${_SHADE_COLORS[separator_sgr]}"'m%}'
+  local context=$'%{\e['"${_SHADE_COLORS[context_sgr]}"'m%}'
+  local indicator=$'%{\e['"${_SHADE_COLORS[prompt_sgr]}"'m%}'
+  PROMPT=$'\n'"${user}%n${separator}@${host}%m%f ${directory}%~%f"
+  PROMPT+="%(${_SHADE_MAP[git]}V. %${_SHADE_MAP[git]}v %(${_SHADE_MAP[git_dirty]}V.%F{$yellow}.%F{$green})%${_SHADE_MAP[git_state]}v%f.)"
+  for field in tf ruby python perl node conda venv; do
+    PROMPT+="%(${_SHADE_MAP[$field]}V. ${user}$field${separator}:${context}%${_SHADE_MAP[$field]}v%f.)"
+  done
+  PROMPT+=$'\n'"%(?..%B)${indicator}%#%f%b "
+  SPROMPT="zsh: correct %F{$coral}%R%f to %F{$blue}%r%f [nyae]? "
+}
+
+function prompt_shade_preview {
+  prompt_preview_theme 'shade'
+}
+
+prompt_shade_setup "$@"

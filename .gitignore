@@ -1,0 +1,6 @@
+.vim/.netrwhist
+.vim/spell
+.zcompdump
+.*.sw?
+*.zwc
+*.zwc.old

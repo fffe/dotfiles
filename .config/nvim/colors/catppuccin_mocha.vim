@@ -1,0 +1,1 @@
+../../../.vim/colors/catppuccin_mocha.vim

@@ -1,0 +1,16 @@
+mkt() {
+  [[ -z ${ZSH_VERSION-} ]] || emulate -L zsh
+  if (( $# > 1 )); then
+    builtin printf '%s\n' 'Usage: mkt [PREFIX]' >&2
+    return 2
+  fi
+
+  case ${1-tmp} in
+    ''|*/*) builtin printf '%s\n' 'Usage: mkt [PREFIX]' >&2; return 2 ;;
+  esac
+
+  local directory temporary_root=${TMPDIR:-/tmp}
+  [[ $temporary_root == /* ]] || temporary_root=$PWD/$temporary_root
+  directory=$(command mktemp -d "${temporary_root%/}/${1:-tmp}.XXXXXXXXXX") || return $?
+  builtin cd -- "$directory"
+}

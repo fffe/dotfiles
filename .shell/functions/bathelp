@@ -1,0 +1,20 @@
+# Highlight piped help text when bat is available; otherwise pass it through.
+bathelp() {
+  [[ -z ${ZSH_VERSION-} ]] || emulate -L zsh
+  local binary
+
+  if _shell_has_command bat; then
+    binary=bat
+  elif _shell_has_command batcat; then
+    binary=batcat
+  else
+    command cat "$@"
+    return
+  fi
+
+  if [[ ${_DOTFILES_COLORS[palette]} != ansi ]]; then
+    command "$binary" --plain --language=help --paging=auto "$@"
+  else
+    command "$binary" --plain --language=txt --color=never --paging=auto "$@"
+  fi
+}

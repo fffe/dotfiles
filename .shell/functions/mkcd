@@ -1,0 +1,12 @@
+mkcd() {
+  [[ -z ${ZSH_VERSION-} ]] || emulate -L zsh
+
+  if (( $# != 1 )) || [[ -z $1 ]]; then
+    builtin printf '%s\n' 'Usage: mkcd DIRECTORY' >&2
+    return 2
+  fi
+
+  local directory=$1
+  [[ $directory == /* ]] || directory=./$directory
+  command mkdir -p "$directory" && builtin cd -- "$directory"
+}
