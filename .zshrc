@@ -97,5 +97,19 @@ fi
 
 source "$_DOTFILES_SHELL_DIR/fzf.sh"
 
+# zsh-users/zsh-history-substring-search master at a0bdb0d47dbaba31dba2db7af8c48a5d9c74049a
+HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_FOUND="${_DOTFILES_COLORS[selection]}"
+HISTORY_SUBSTRING_SEARCH_HIGHLIGHT_NOT_FOUND="fg=${_DOTFILES_COLORS[coral]},bold"
+source "${ZDOTDIR:-$HOME}/.zsh/vendor/zsh-history-substring-search/zsh-history-substring-search.zsh"
+
+# Accept arrows in both normal and application cursor modes.
+for keymap in emacs viins vicmd; do
+  bindkey -M "$keymap" $'\e[A' history-substring-search-up
+  bindkey -M "$keymap" $'\e[B' history-substring-search-down
+  bindkey -M "$keymap" $'\eOA' history-substring-search-up
+  bindkey -M "$keymap" $'\eOB' history-substring-search-down
+done
+unset keymap
+
 # load local configuration if it exists
 [[ -e ${HOME}/.zshrc.local ]] && source ${HOME}/.zshrc.local
