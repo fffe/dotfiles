@@ -38,7 +38,7 @@ for file in .bash_profile .bashrc .zshenv .zprofile .zshrc .tmux.conf .vimrc .ba
     link "$file" "$target/$file"
 done
 
-for app in bat nvim ghostty terminal-colors; do
+for app in bat nvim terminal-colors; do
     link ".config/$app" "$config/$app"
 done
 
